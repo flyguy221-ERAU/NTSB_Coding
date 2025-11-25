@@ -4,6 +4,7 @@ import uuid
 import numpy as np
 import datetime as dt
 import gspread
+import streamlit.components.v1 as components  
 
 from pathlib import Path
 from typing import Any, Dict, List, Set
@@ -153,7 +154,38 @@ def compute_start_index(df: pd.DataFrame, completed_ids: Set[str]) -> int:
 df = load_data()
 total_n = len(df)
 
+# ---- GLOBAL STYLE TWEAKS ----
+st.markdown(
+    """
+    <style>
+    .ntsb-card {
+        padding: 1.2rem 1.4rem;
+        border-radius: 0.8rem;
+        border: 1px solid rgba(200,200,200,0.6);
+        background-color: rgba(250,250,250,0.9);
+        margin-bottom: 1.0rem;
+    }
+    .ntsb-header {
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin-bottom: 0.3rem;
+    }
+    .ntsb-subheader {
+        font-size: 0.95rem;
+        color: #555;
+        margin-bottom: 0.6rem;
+    }
+    .ntsb-narrative {
+        font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        white-space: pre-wrap;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.title("Aviation Narrative Coding")
+
 st.write(
     "Please read each narrative and answer the questions below. "
     "You can close this page and come back later; your completed work is saved."
@@ -172,12 +204,17 @@ else:
 st.progress(progress_value, text=f"{completed_count} of {total_n} narratives coded")
 
 # Session state index (resume from last completed item)
+# ---- SESSION STATE INIT ----
 if "index" not in st.session_state:
-    st.session_state.index = compute_start_index(df, completed_ids)
+    st.session_state.index = 0
 
-# Show confirmation of the last saved response, if any
-if "last_saved_ev_id" in st.session_state:
-    st.success(f"Saved response for EV_ID {st.session_state.last_saved_ev_id}.")
+# If we requested an input reset on the previous save, clear widget state now
+if st.session_state.get("reset_inputs", False):
+    st.session_state.fcm_choice = None
+    st.session_state.loc_choice = None
+    st.session_state.notes_text = ""
+    st.session_state.reset_inputs = False
+
 
 # ---- CURRENT RECORD ----
 i = st.session_state.index
@@ -186,8 +223,17 @@ if i >= len(df):
 else:
     record = df.iloc[i]
 
-    st.subheader(f"Event {i+1} of {len(df)} — EV_ID: {record['ev_id']}")
-    st.write(f"**Date:** {record['ev_date']}")
+    st.markdown(
+            f"""
+            <div class="ntsb-card">
+            <div class="ntsb-header">Event {i+1} of {total_n} — EV_ID: {record["ev_id"]}</div>
+            <div class="ntsb-subheader">Date: {record["ev_date"]}</div>
+            <div class="ntsb-narrative">
+            """,
+            unsafe_allow_html=True,
+        )
+    st.markdown(record["narrative_full"])
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
     st.markdown("### Narrative")
     st.text_area("Narrative text", record["narrative_full"], height=350, disabled=True)
@@ -195,20 +241,49 @@ else:
     # ---- CODING QUESTIONS ----
     st.markdown("### Coding Questions")
 
-    # Give widgets explicit keys so we can reset them
     fcm = st.radio(
         "Does this narrative indicate a monitoring or cue-usage failure (FCM)?",
         ["Yes", "No", "Cannot Determine"],
         index=None,
-        key="fcm_choice",
+        key="fcm_choice",  # make sure you use a key
     )
 
     loc = st.radio(
         "Does this narrative indicate a loss of control (LOC)?",
         ["Yes", "No", "Cannot Determine"],
         index=None,
-        key="loc_choice",
+        key="loc_choice",  # and here
     )
+
+    notes = st.text_area("Optional Notes", key="notes_text")
+
+    st.caption("Keyboard shortcuts: 1 = Yes, 2 = No, 3 = Cannot Determine")
+
+    # ---- Keyboard shortcut wiring (1/2/3 → radio choices) ----
+    KEYBOARD_JS = """
+    <script>
+    document.addEventListener('keydown', function(e) {
+    const key = e.key;
+    if (!['1','2','3'].includes(key)) return;
+
+    // Find all radio labels
+    const labels = Array.from(
+        window.parent.document.querySelectorAll('label[data-baseweb="radio"]')
+    );
+
+    function clickFirstLabelWithText(text) {
+        const label = labels.find(l => l.innerText.trim().startsWith(text));
+        if (label) { label.click(); }
+    }
+
+    if (key === '1') clickFirstLabelWithText('Yes');
+    if (key === '2') clickFirstLabelWithText('No');
+    if (key === '3') clickFirstLabelWithText('Cannot Determine');
+    });
+    </script>
+    """
+
+    components.html(KEYBOARD_JS, height=0, width=0)
 
     notes = st.text_area("Optional Notes", key="notes_text")
 
@@ -217,37 +292,42 @@ if st.button("Save and Next"):
     if fcm is None or loc is None:
         st.error("Please answer both coding questions before continuing.")
     else:
-        # Save row
+        # Build response row
         response = {
             "response_id": str(uuid.uuid4()),
             "rater_id": RATER_ID,
-            "event_id": record["ev_id"],
+            "ev_id": record["ev_id"],
             "ev_date": record["ev_date"],
-            "fcm_code": fcm,
-            "loc_code": loc,
-            "notes": notes,
+            "FCM": fcm,
+            "LOC": loc,
+            "Notes": notes,
             "saved_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         }
 
-        # Google Sheets save
-        save_response_to_sheets(response)
+        # Show spinner while saving
+        with st.spinner("Saving response..."):
+            # Google Sheets save
+            save_response_to_sheets(response)
 
-        # Local CSV backup
-        SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame([response]).to_csv(
-            SAVE_PATH,
-            mode="a",
-            index=False,
-            header=not SAVE_PATH.exists()
-        )
+            # Local CSV backup
+            SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame([response]).to_csv(
+                SAVE_PATH,
+                mode="a",
+                index=False,
+                header=not SAVE_PATH.exists(),
+            )
 
-        # Confirmation
+        # Toast confirmation (bottom-right)
+        st.toast("Saved! Moving to the next narrative.", icon="✅")
+
+        # Remember last saved ID (if you use it in a status message)
         st.session_state.last_saved_ev_id = record["ev_id"]
 
-        # REQUEST INPUT RESET on next run
+        # Request reset of widget values on next rerun
         st.session_state.reset_inputs = True
 
-        # Move to next record
+        # Advance to next record
         st.session_state.index += 1
 
         # Trigger rerun
