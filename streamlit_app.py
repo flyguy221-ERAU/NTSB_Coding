@@ -203,13 +203,15 @@ else:
 
 st.progress(progress_value, text=f"{completed_count} of {total_n} narratives coded")
 
-# Session state index (resume from last completed item)
 # ---- SESSION STATE INIT ----
 if "index" not in st.session_state:
     st.session_state.index = 0
 
+if "reset_inputs" not in st.session_state:
+    st.session_state.reset_inputs = False
+
 # If we requested an input reset on the previous save, clear widget state now
-if st.session_state.get("reset_inputs", False):
+if st.session_state.reset_inputs:
     st.session_state.fcm_choice = None
     st.session_state.loc_choice = None
     st.session_state.notes_text = ""
@@ -245,14 +247,14 @@ else:
         "Does this narrative indicate a monitoring or cue-usage failure (FCM)?",
         ["Yes", "No", "Cannot Determine"],
         index=None,
-        key="fcm_choice",  # make sure you use a key
+        key="fcm_choice",
     )
 
     loc = st.radio(
         "Does this narrative indicate a loss of control (LOC)?",
         ["Yes", "No", "Cannot Determine"],
         index=None,
-        key="loc_choice",  # and here
+        key="loc_choice",
     )
 
     notes = st.text_area("Optional Notes", key="notes_text")
@@ -285,7 +287,7 @@ else:
 
     components.html(KEYBOARD_JS, height=0, width=0)
 
-    notes = st.text_area("Optional Notes", key="notes_text")
+    #notes = st.text_area("Optional Notes", key="notes_text")
 
     # ---- SAVE BUTTON ----
 if st.button("Save and Next"):
