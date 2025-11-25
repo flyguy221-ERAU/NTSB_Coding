@@ -4,3 +4,5 @@ streamlit
 uuid
 pandas
 path
+typing
+numpy
