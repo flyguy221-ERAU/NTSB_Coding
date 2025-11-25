@@ -94,7 +94,10 @@ def save_response_to_sheets(row_dict: dict):
     ws.append_row(row)
 
 # ---- CONFIG ----
-DATA_PATH = Path("/Users/jeremyfeagan/Library/Mobile Documents/com~apple~CloudDocs/GitHub/NTSB_Project/data/processed/narratives_for_coding.parquet")
+# Base directory of this file (works both locally and on Streamlit Cloud)
+BASE_DIR = Path(__file__).resolve().parent
+DATA_PATH = BASE_DIR / "data" / "processed" / "narratives_for_coding.parquet"
+#DATA_PATH = Path("/Users/jeremyfeagan/Library/Mobile Documents/com~apple~CloudDocs/GitHub/NTSB_Project/data/processed/narratives_for_coding.parquet")
 SAVE_PATH = Path("data/coding_responses.csv")
 
 SHEET_COLUMNS = [
@@ -110,8 +113,11 @@ SHEET_COLUMNS = [
 # ---- LOAD DATA ----
 @st.cache_data
 def load_data():
+    if not DATA_PATH.exists():
+        st.error(f"Data file not found at: {DATA_PATH}")
+        st.stop()
+
     df = pd.read_parquet(DATA_PATH)
-    # Make sure we only send her the fields she needs
     cols = ["ev_id", "ev_date", "narrative_full"]
     return df[cols].reset_index(drop=True)
 
