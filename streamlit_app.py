@@ -96,8 +96,8 @@ def save_response_to_sheets(row_dict: dict):
 # ---- CONFIG ----
 # Base directory of this file (works both locally and on Streamlit Cloud)
 BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "data" / "processed" / "narratives_for_coding.parquet"
-#DATA_PATH = Path("/Users/jeremyfeagan/Library/Mobile Documents/com~apple~CloudDocs/GitHub/NTSB_Project/data/processed/narratives_for_coding.parquet")
+DATA_PATH = BASE_DIR / "data" / "processed" / "Ashley_Coding.parquet"
+#DATA_PATH = Path("/Users/jeremyfeagan/Library/Mobile Documents/com~apple~CloudDocs/GitHub/NTSB_Project/data/processed/Ashley_Coding.parquet")
 SAVE_PATH = Path("data/coding_responses.csv")
 
 SHEET_COLUMNS = [
