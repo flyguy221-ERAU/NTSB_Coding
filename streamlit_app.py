@@ -105,7 +105,7 @@ def get_completed_ids_from_sheets() -> Set[str]:
     try:
         ws = get_worksheet()
         records = ws.get_all_records()
-        return {str(r.get("ev_id")) for r in records if r.get("ev_id")}
+        return {str(r.get("event_id")) for r in records if r.get("event_id")}
     except Exception:
         # If Sheets is unavailable, just treat as 0 completed
         return set()
