@@ -162,17 +162,18 @@ st.markdown(
         padding: 1.2rem 1.4rem;
         border-radius: 0.8rem;
         border: 1px solid rgba(200,200,200,0.6);
-        background-color: rgba(250,250,250,0.9);
+        background-color: rgba(239, 236, 227,0.9);
         margin-bottom: 1.0rem;
     }
     .ntsb-header {
         font-size: 1.3rem;
         font-weight: 600;
+        font-color: rgba(143, 171, 212);
         margin-bottom: 0.3rem;
     }
     .ntsb-subheader {
         font-size: 0.95rem;
-        color: #555;
+        font-color: rgba(74, 112, 169);
         margin-bottom: 0.6rem;
     }
     .ntsb-narrative {
@@ -298,11 +299,11 @@ if st.button("Save and Next"):
         response = {
             "response_id": str(uuid.uuid4()),
             "rater_id": RATER_ID,
-            "ev_id": record["ev_id"],
+            "event_id": record["ev_id"],
             "ev_date": record["ev_date"],
-            "FCM": fcm,
-            "LOC": loc,
-            "Notes": notes,
+            "fcm_code": fcm,
+            "loc_code": loc,
+            "notes": notes,
             "saved_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         }
 
