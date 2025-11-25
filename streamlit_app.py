@@ -210,7 +210,7 @@ else:
             response = {
                 "response_id": str(uuid.uuid4()),
                 "rater_id": RATER_ID,
-                "event_id": record["event_id"],
+                "event_id": record["ev_id"],
                 "ev_date": record["ev_date"],
                 "fcm_code": fcm,
                 "loc_code": loc,
