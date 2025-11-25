@@ -162,7 +162,7 @@ st.markdown(
         padding: 1.2rem 1.4rem;
         border-radius: 0.8rem;
         border: 1px solid rgba(200,200,200,0.6);
-        background-color: rgba(239, 236, 227,0.9);
+        background-color: #6c4baa;
         margin-bottom: 1.0rem;
     }
     .ntsb-header {
