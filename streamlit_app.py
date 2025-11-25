@@ -131,6 +131,12 @@ def load_data() -> pd.DataFrame:
 
     return df
 
+# Handle input reset request before widgets render
+if st.session_state.get("reset_inputs", False):
+    st.session_state.fcm_choice = None
+    st.session_state.loc_choice = None
+    st.session_state.notes_text = ""
+    st.session_state.reset_inputs = False
 
 def compute_start_index(df: pd.DataFrame, completed_ids: Set[str]) -> int:
     """Find first index in df whose ev_id has NOT yet been coded."""
@@ -207,43 +213,42 @@ else:
     notes = st.text_area("Optional Notes", key="notes_text")
 
     # ---- SAVE BUTTON ----
-    if st.button("Save and Next"):
-        # Use values from session_state to be explicit
-        fcm_val = st.session_state.fcm_choice
-        loc_val = st.session_state.loc_choice
-        notes_val = st.session_state.notes_text
+if st.button("Save and Next"):
+    if fcm is None or loc is None:
+        st.error("Please answer both coding questions before continuing.")
+    else:
+        # Save row
+        response = {
+            "response_id": str(uuid.uuid4()),
+            "rater_id": RATER_ID,
+            "ev_id": record["ev_id"],
+            "ev_date": record["ev_date"],
+            "FCM": fcm,
+            "LOC": loc,
+            "Notes": notes,
+            "saved_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }
 
-        if fcm_val is None or loc_val is None:
-            st.error("Please answer both coding questions before continuing.")
-        else:
-            # Save row
-            response = {
-                "response_id": str(uuid.uuid4()),
-                "ev_id": record["ev_id"],
-                "ev_date": record["ev_date"],
-                "FCM": fcm_val,
-                "LOC": loc_val,
-                "Notes": notes_val,
-            }
+        # Google Sheets save
+        save_response_to_sheets(response)
 
-            save_response_to_sheets(response)
+        # Local CSV backup
+        SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame([response]).to_csv(
+            SAVE_PATH,
+            mode="a",
+            index=False,
+            header=not SAVE_PATH.exists()
+        )
 
-            # Append to CSV
-            SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame([response]).to_csv(
-                SAVE_PATH, mode="a", index=False, header=not SAVE_PATH.exists()
-            )
+        # Confirmation
+        st.session_state.last_saved_ev_id = record["ev_id"]
 
-            # Remember what we just saved so we can show a confirmation on next load
-            st.session_state.last_saved_ev_id = record["ev_id"]
+        # REQUEST INPUT RESET on next run
+        st.session_state.reset_inputs = True
 
-            # Clear widget values for the next narrative
-            st.session_state.fcm_choice = None
-            st.session_state.loc_choice = None
-            st.session_state.notes_text = ""
+        # Move to next record
+        st.session_state.index += 1
 
-            # Increment index and move on
-            st.session_state.index += 1
-
-            # Use the non-experimental rerun
-            st.rerun()
+        # Trigger rerun
+        st.rerun()
