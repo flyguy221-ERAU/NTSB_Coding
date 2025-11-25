@@ -1,0 +1,6 @@
+gspread
+google-auth
+streamlit
+uuid
+pandas
+path
