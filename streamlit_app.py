@@ -210,11 +210,11 @@ else:
             response = {
                 "response_id": str(uuid.uuid4()),
                 "rater_id": RATER_ID,
-                "ev_id": record["ev_id"],
+                "event_id": record["event_id"],
                 "ev_date": record["ev_date"],
-                "FCM": fcm,
-                "LOC": loc,
-                "Notes": notes,
+                "fcm_code": fcm,
+                "loc_code": loc,
+                "notes": notes,
                 "saved_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
             }
 
