@@ -169,16 +169,18 @@ st.progress(progress_value, text=f"{completed_count} of {total_n} narratives cod
 if "index" not in st.session_state:
     st.session_state.index = compute_start_index(df, completed_ids)
 
-i = st.session_state.index
+# Show confirmation of the last saved response, if any
+if "last_saved_ev_id" in st.session_state:
+    st.success(f"Saved response for EV_ID {st.session_state.last_saved_ev_id}.")
 
-if total_n == 0:
-    st.info("No narratives are assigned to you.")
-elif i >= total_n:
+# ---- CURRENT RECORD ----
+i = st.session_state.index
+if i >= len(df):
     st.success("🎉 You have completed all assigned narratives!")
 else:
     record = df.iloc[i]
 
-    st.subheader(f"Event {i+1} of {total_n} — EV_ID: {record['ev_id']}")
+    st.subheader(f"Event {i+1} of {len(df)} — EV_ID: {record['ev_id']}")
     st.write(f"**Date:** {record['ev_date']}")
 
     st.markdown("### Narrative")
@@ -187,49 +189,61 @@ else:
     # ---- CODING QUESTIONS ----
     st.markdown("### Coding Questions")
 
+    # Give widgets explicit keys so we can reset them
     fcm = st.radio(
         "Does this narrative indicate a monitoring or cue-usage failure (FCM)?",
         ["Yes", "No", "Cannot Determine"],
         index=None,
+        key="fcm_choice",
     )
 
     loc = st.radio(
         "Does this narrative indicate a loss of control (LOC)?",
         ["Yes", "No", "Cannot Determine"],
         index=None,
+        key="loc_choice",
     )
 
-    notes = st.text_area("Optional Notes")
+    notes = st.text_area("Optional Notes", key="notes_text")
 
     # ---- SAVE BUTTON ----
     if st.button("Save and Next"):
-        if fcm is None or loc is None:
+        # Use values from session_state to be explicit
+        fcm_val = st.session_state.fcm_choice
+        loc_val = st.session_state.loc_choice
+        notes_val = st.session_state.notes_text
+
+        if fcm_val is None or loc_val is None:
             st.error("Please answer both coding questions before continuing.")
         else:
-            # Build response row
+            # Save row
             response = {
                 "response_id": str(uuid.uuid4()),
-                "rater_id": RATER_ID,
-                "event_id": record["ev_id"],
+                "ev_id": record["ev_id"],
                 "ev_date": record["ev_date"],
-                "fcm_code": fcm,
-                "loc_code": loc,
-                "notes": notes,
-                "saved_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "FCM": fcm_val,
+                "LOC": loc_val,
+                "Notes": notes_val,
             }
 
-            # 1) Save to Google Sheets
-            try:
-                save_response_to_sheets(response)
-            except Exception as e:
-                st.error(f"Could not sync to Google Sheets: {e}")
+            save_response_to_sheets(response)
 
-            # 2) Also append to local CSV (optional backup)
+            # Append to CSV
             SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
             pd.DataFrame([response]).to_csv(
                 SAVE_PATH, mode="a", index=False, header=not SAVE_PATH.exists()
             )
 
-            # 3) Move to next record and rerun
+            # Remember what we just saved so we can show a confirmation on next load
+            st.session_state.last_saved_ev_id = record["ev_id"]
+
+            # Clear widget values for the next narrative
+            st.session_state.fcm_choice = None
+            st.session_state.loc_choice = None
+            st.session_state.notes_text = ""
+
+            # Increment index and move on
             st.session_state.index += 1
+
+            # Use the non-experimental rerun
             st.rerun()
