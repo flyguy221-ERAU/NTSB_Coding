@@ -204,6 +204,10 @@ else:
 
 st.progress(progress_value, text=f"{completed_count} of {total_n} narratives coded")
 
+# Initialize index from completed_count on first load (resume)
+if "index" not in st.session_state or st.session_state.index < completed_count:
+    st.session_state.index = completed_count
+
 # ---- SESSION STATE INIT ----
 if "index" not in st.session_state:
     st.session_state.index = 0
