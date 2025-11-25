@@ -2,15 +2,17 @@ import streamlit as st
 import pandas as pd
 import uuid
 import numpy as np
+import datetime as dt
 import gspread
 
-
 from pathlib import Path
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 from google.oauth2 import service_account
-from google.oauth2.service_account import Credentials
 
+# ------------- CONFIG -------------
+
+# Who is this app for? (used in sheet + optional filtering)
+RATER_ID = "Ashley"
 
 # Scopes: Sheets + Drive (Drive is needed if you open by title)
 SCOPES = [
@@ -18,11 +20,21 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+# For local dev you might use an absolute path.
+# For Streamlit Cloud, make sure this is a *relative* path
+# and that the file is in your repo.
+DATA_PATH = Path("data/processed/Ashley_Coding.parquet")
+
+# Also keep a local CSV log if you want
+SAVE_PATH = Path("data/coding_responses.csv")
+
+# ------------- GOOGLE SHEETS HELPERS -------------
+
 def get_gsheets_client():
     """Create an authenticated gspread client using Streamlit secrets."""
     try:
         sa_info = dict(st.secrets["gcp_service_account"])
-    except Exception as e:
+    except Exception:
         st.warning("Google service account config not found in secrets.")
         raise
 
@@ -40,7 +52,7 @@ def get_worksheet():
     sheet_name = st.secrets["sheets"]["sheet_name"]
     worksheet_name = st.secrets["sheets"]["worksheet_name"]
 
-    # Option A: open by sheet title (requires Drive scope)
+    # Open by Google Sheet title
     sh = gc.open(sheet_name)
 
     # If the worksheet doesn't exist, create it
@@ -51,17 +63,18 @@ def get_worksheet():
 
     return ws
 
+
 def normalize_for_sheets_value(value: Any) -> Any:
     """Convert values to types that can be JSON-encoded for Google Sheets."""
     # Pandas / datetime objects → ISO string
-    if isinstance(value, (pd.Timestamp, datetime.datetime, datetime.date)):
+    if isinstance(value, (pd.Timestamp, dt.datetime, dt.date)):
         return value.isoformat()
 
     # NumPy scalars → native Python types
     if isinstance(value, (np.generic,)):
         return value.item()
 
-    # Anything else: just pass through (str, int, float, None, etc.)
+    # Everything else (str, int, float, None) is fine
     return value
 
 
@@ -71,73 +84,101 @@ def normalize_row_for_sheets(row_dict: Dict[str, Any], header: List[str]) -> Lis
 
 
 def save_response_to_sheets(row_dict: dict):
+    """Append one coded row to Google Sheets."""
     ws = get_worksheet()
 
-    # Fetch header row (row 1)
+    # Current header row from the sheet (if any)
     header = ws.row_values(1)
 
-    # If header missing or incomplete, write a correct one
-    if not header or header != SHEET_COLUMNS:
-        ws.update("A1", [SHEET_COLUMNS])
-        header = SHEET_COLUMNS
+    if not header:
+        # First write: create header from keys in row_dict
+        header = list(row_dict.keys())
+        ws.append_row(header)
 
-    # Build safe row
-    row = []
-    for col in header:
-        val = row_dict.get(col, "")
-        if isinstance(val, (pd.Timestamp, datetime)):
-            val = val.isoformat()
-        if isinstance(val, np.generic):
-            val = val.item()
-        row.append(val)
+    # Build row in header order, with all values JSON-safe
+    row_values = normalize_row_for_sheets(row_dict, header)
+    ws.append_row(row_values)
 
-    ws.append_row(row)
 
-# ---- CONFIG ----
-# Base directory of this file (works both locally and on Streamlit Cloud)
-BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "data" / "processed" / "Ashley_Coding.parquet"
-#DATA_PATH = Path("/Users/jeremyfeagan/Library/Mobile Documents/com~apple~CloudDocs/GitHub/NTSB_Project/data/processed/Ashley_Coding.parquet")
-SAVE_PATH = Path("data/coding_responses.csv")
+def get_completed_ids_from_sheets() -> Set[str]:
+    """Return set of ev_id values already coded in this worksheet."""
+    try:
+        ws = get_worksheet()
+        records = ws.get_all_records()
+        return {str(r.get("ev_id")) for r in records if r.get("ev_id")}
+    except Exception:
+        # If Sheets is unavailable, just treat as 0 completed
+        return set()
 
-SHEET_COLUMNS = [
-    "response_id",
-    "event_id",
-    "ev_date",
-    "fcm_code",
-    "loc_code",
-    "notes",
-    "saved_at_utc",
-]
+# ------------- DATA LOADING -------------
 
-# ---- LOAD DATA ----
 @st.cache_data
-def load_data():
-    if not DATA_PATH.exists():
-        st.error(f"Data file not found at: {DATA_PATH}")
-        st.stop()
-
+def load_data() -> pd.DataFrame:
     df = pd.read_parquet(DATA_PATH)
+
+    # Keep only what the rater needs
     cols = ["ev_id", "ev_date", "narrative_full"]
-    return df[cols].reset_index(drop=True)
+    df = df[cols].reset_index(drop=True)
+
+    # OPTIONAL: if your parquet already has an assignment column, filter
+    # so Ashley only sees her portion.
+    # Example expected column: "assigned_rater"
+    if "assigned_rater" in df.columns:
+        df = df[df["assigned_rater"] == RATER_ID].reset_index(drop=True)
+
+    # Force ev_id to string for consistency with Sheets
+    df["ev_id"] = df["ev_id"].astype(str)
+
+    return df
+
+
+def compute_start_index(df: pd.DataFrame, completed_ids: Set[str]) -> int:
+    """Find first index in df whose ev_id has NOT yet been coded."""
+    ev_ids = df["ev_id"].tolist()
+    for idx, ev in enumerate(ev_ids):
+        if ev not in completed_ids:
+            return idx
+    # All done
+    return len(df)
+
+
+# ------------- MAIN APP -------------
 
 df = load_data()
+total_n = len(df)
 
 st.title("Aviation Narrative Coding")
-st.write("Please read each narrative and answer the questions below.")
+st.write(
+    "Please read each narrative and answer the questions below. "
+    "You can close this page and come back later; your completed work is saved."
+)
 
-# ---- SESSION STATE ----
+# Get which IDs are already coded in this worksheet
+completed_ids = get_completed_ids_from_sheets()
+completed_count = sum(ev in completed_ids for ev in df["ev_id"].tolist())
+
+# Progress bar
+if total_n > 0:
+    progress_value = completed_count / total_n
+else:
+    progress_value = 0.0
+
+st.progress(progress_value, text=f"{completed_count} of {total_n} narratives coded")
+
+# Session state index (resume from last completed item)
 if "index" not in st.session_state:
-    st.session_state.index = 0
+    st.session_state.index = compute_start_index(df, completed_ids)
 
-# ---- CURRENT RECORD ----
 i = st.session_state.index
-if i >= len(df):
+
+if total_n == 0:
+    st.info("No narratives are assigned to you.")
+elif i >= total_n:
     st.success("🎉 You have completed all assigned narratives!")
 else:
     record = df.iloc[i]
 
-    st.subheader(f"Event {i+1} of {len(df)} — EV_ID: {record['ev_id']}")
+    st.subheader(f"Event {i+1} of {total_n} — EV_ID: {record['ev_id']}")
     st.write(f"**Date:** {record['ev_date']}")
 
     st.markdown("### Narrative")
@@ -165,30 +206,30 @@ else:
         if fcm is None or loc is None:
             st.error("Please answer both coding questions before continuing.")
         else:
-            # Save row
+            # Build response row
             response = {
-    "response_id": str(uuid.uuid4()),
-    "event_id": str(record["ev_id"]),
-    "ev_date": str(record["ev_date"]),   # convert Timestamp → string
-    "fcm_code": fcm,
-    "loc_code": loc,
-    "notes": notes,
-    "saved_at_utc": datetime.now(timezone.utc).isoformat(),
-}
+                "response_id": str(uuid.uuid4()),
+                "rater_id": RATER_ID,
+                "ev_id": record["ev_id"],
+                "ev_date": record["ev_date"],
+                "FCM": fcm,
+                "LOC": loc,
+                "Notes": notes,
+                "saved_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }
 
-            save_response_to_sheets(response)
+            # 1) Save to Google Sheets
+            try:
+                save_response_to_sheets(response)
+            except Exception as e:
+                st.error(f"Could not sync to Google Sheets: {e}")
 
-            # Append to CSV
+            # 2) Also append to local CSV (optional backup)
             SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
             pd.DataFrame([response]).to_csv(
                 SAVE_PATH, mode="a", index=False, header=not SAVE_PATH.exists()
             )
 
-        st.session_state.index += 1
-
-        # Support both older and newer Streamlit versions
-        if hasattr(st, "rerun"):
+            # 3) Move to next record and rerun
+            st.session_state.index += 1
             st.rerun()
-        else:
-            st.experimental_rerun()
-            
