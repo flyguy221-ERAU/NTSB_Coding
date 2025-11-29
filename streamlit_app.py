@@ -317,13 +317,13 @@ if st.button("Save and Next"):
             save_response_to_sheets(response)
 
             # Local CSV backup
-            SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame([response]).to_csv(
-                SAVE_PATH,
-                mode="a",
-                index=False,
-                header=not SAVE_PATH.exists(),
-            )
+            #SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            #pd.DataFrame([response]).to_csv(
+            #    SAVE_PATH,
+            #    mode="a",
+            #    index=False,
+            #    header=not SAVE_PATH.exists(),
+            #)
 
         # Toast confirmation (bottom-right)
         st.toast("Saved! Moving to the next narrative.", icon="✅")
